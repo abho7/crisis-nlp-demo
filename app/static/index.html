@@ -4,231 +4,478 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crisis Text Classifier — Demo</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;450;500;600&display=swap" rel="stylesheet">
+
 <style>
-  :root {
-    --bg: #fbfbfa;
-    --surface: #ffffff;
-    --border: #e3e2df;
-    --text: #1a1a18;
-    --muted: #6b6a66;
-    --accent: #2f6f4e;
-    --warn-bg: #fdf6e6;
-    --warn-border: #e8d9a8;
-    --warn-text: #6b5518;
-    /* Divergent pair. Orange/blue rather than red/green so the two directions
-       stay distinguishable under the common colour-vision deficiencies. Each
-       theme needs its own values: these are laid over the surface as rgba, so
-       light themes want dark inks and dark themes want light ones. */
-    --pos: 176, 63, 27;     /* toward disaster-related  */
-    --neg: 30, 90, 150;     /* toward not disaster-related */
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16161a;
-      --surface: #1e1e23;
-      --border: #33333a;
-      --text: #ececea;
-      --muted: #9b9a96;
-      --accent: #6fbf92;
-      --warn-bg: #2b2513;
-      --warn-border: #574a22;
-      --warn-text: #e2cf94;
-      --pos: 240, 150, 100;
-      --neg: 120, 175, 235;
-    }
-  }
-  * { box-sizing: border-box; }
-  /* At fractional devicePixelRatios (1.5 here) Chrome rounds the scrollbar
-     gutter up and reports documentElement.scrollWidth a scrollbar wider than
-     clientWidth, producing a stray horizontal scrollbar. No content actually
-     exceeds the viewport, so clamping the axis clips nothing. */
-  html { overflow-x: hidden; }
-  body {
-    margin: 0;
-    overflow-x: hidden;
-    padding: 2.5rem 1.25rem 4rem;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-  }
-  main { max-width: 46rem; margin: 0 auto; }
-  h1 { font-size: 1.45rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
-  .sub { color: var(--muted); font-size: .9rem; margin: 0 0 1.5rem; }
+/* ---------------------------------------------------------------------------
+   Palette. Diverging pair is blue <-> red with a neutral gray midpoint: two
+   poles that read as opposite, which two cool hues would not. Both modes were
+   run through the palette validator against their own surface -- worst-pair
+   CVD dE 21.6 light / 19.2 dark, normal-vision 32.3 / 29.0, all six checks
+   pass. Dark is its own set of steps for the dark surface, not an inversion.
 
-  .notice {
-    background: var(--warn-bg);
-    border: 1px solid var(--warn-border);
-    color: var(--warn-text);
-    border-radius: 10px;
-    padding: .8rem 1rem;
-    font-size: .85rem;
-    margin-bottom: 1.75rem;
+   The action colour is deliberately neutral ink rather than a hue, so no UI
+   control ever wears a colour that means something in the data.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --plane:      #f9f9f7;
+  --surface:    #fcfcfb;
+  --ink:        #0b0b0b;
+  --ink-2:      #52514e;
+  /* Label grey carries small UI text (eyebrows, hints, tags), so it is held to
+     the 4.5:1 body threshold rather than the chart-label 3:1. The reference
+     #898781 measures only 3.50:1 on this surface; this step measures 5.27 here
+     and 4.88 on the note surface, and stays lighter than --ink-2 so the
+     hierarchy still reads. Dark mode keeps #898781, which already clears 4.85. */
+  --muted:      #6b6a66;
+  --grid:       #e1e0d9;
+  --baseline:   #c3c2b7;
+  --border:     rgba(11, 11, 11, 0.10);
+  --note-bg:    #f4f3ef;
+
+  /* diverging poles, as raw channels so alpha tints can be composed */
+  --pos-rgb:    227, 73, 72;    /* toward disaster-related     */
+  --neg-rgb:    42, 120, 214;   /* toward not disaster-related */
+
+  --action:     #0b0b0b;
+  --action-ink: #fcfcfb;
+
+  --display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --sans: "Inter", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --plane:      #0d0d0d;
+    --surface:    #1a1a19;
+    --ink:        #ffffff;
+    --ink-2:      #c3c2b7;
+    --muted:      #898781;
+    --grid:       #2c2c2a;
+    --baseline:   #383835;
+    --border:     rgba(255, 255, 255, 0.10);
+    --note-bg:    #211f1d;
+    --pos-rgb:    230, 103, 103;
+    --neg-rgb:    57, 135, 229;
+    --action:     #f2f1ec;
+    --action-ink: #0d0d0d;
   }
-  .notice strong { display: block; margin-bottom: .2rem; }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:      #0d0d0d;
+  --surface:    #1a1a19;
+  --ink:        #ffffff;
+  --ink-2:      #c3c2b7;
+  --muted:      #898781;
+  --grid:       #2c2c2a;
+  --baseline:   #383835;
+  --border:     rgba(255, 255, 255, 0.10);
+  --note-bg:    #211f1d;
+  --pos-rgb:    230, 103, 103;
+  --neg-rgb:    57, 135, 229;
+  --action:     #f2f1ec;
+  --action-ink: #0d0d0d;
+}
 
-  textarea {
-    width: 100%;
-    min-height: 7.5rem;
-    padding: .9rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    resize: vertical;
-  }
-  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+* { box-sizing: border-box; }
+/* At fractional devicePixelRatios (1.5) Chrome rounds the vertical scrollbar
+   gutter up, leaving the viewport scrollable by ~15px with nothing actually
+   overflowing. `hidden` does not fix it -- it still establishes a scroll
+   container, which stays programmatically scrollable. `clip` establishes no
+   scroll container at all, so the stray axis disappears. `hidden` is kept
+   first as the fallback for engines without `clip`. */
+html { overflow-x: hidden; overflow-x: clip; }
+body {
+  margin: 0;
+  overflow-x: hidden;
+  overflow-x: clip;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
 
-  .row { display: flex; gap: .75rem; align-items: center; margin-top: .75rem; flex-wrap: wrap; }
-  button {
-    background: var(--accent);
-    color: #fff;
-    border: 0;
-    border-radius: 8px;
-    padding: .55rem 1.1rem;
-    font: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  button:disabled { opacity: .55; cursor: default; }
-  .hint { color: var(--muted); font-size: .8rem; }
+main {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 5rem) clamp(1.25rem, 4vw, 2.5rem) 6rem;
+}
 
-  .examples { margin-top: 1rem; display: flex; gap: .4rem; flex-wrap: wrap; }
-  .examples button {
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    font-size: .78rem;
-    padding: .3rem .65rem;
-    font-weight: 400;
-  }
+/* --- rhythm ------------------------------------------------------------- */
+.stack > * + * { margin-top: var(--gap, 1rem); }
+section + section { margin-top: clamp(2.5rem, 5vw, 3.75rem); }
 
-  .card {
-    margin-top: 2rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.4rem;
-  }
-  .verdict { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-  .label { font-size: 1.2rem; font-weight: 600; }
-  .conf { color: var(--muted); font-size: .9rem; }
+.eyebrow {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 .75rem;
+}
 
-  .bar { height: 6px; border-radius: 3px; background: var(--border); margin: .8rem 0 1.4rem; overflow: hidden; }
-  .bar > span { display: block; height: 100%; background: var(--accent); }
+/* --- masthead ----------------------------------------------------------- */
+.masthead { margin-bottom: 2.5rem; }
+h1 {
+  font-family: var(--display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-size: clamp(2.25rem, 6vw, 3.4rem);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  margin: 0 0 .6rem;
+}
+.lede {
+  font-size: clamp(1rem, 2vw, 1.12rem);
+  color: var(--ink-2);
+  margin: 0;
+  max-width: 48ch;
+}
 
-  .reading { font-size: 1.12rem; line-height: 2.1; word-wrap: break-word; }
-  .reading mark {
-    background: transparent;
-    color: inherit;
-    padding: .12em .18em;
-    border-radius: 4px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-  }
+/* --- provenance note ---------------------------------------------------- */
+/* Prominent by placement and structure rather than by alarm colouring: it sits
+   directly under the masthead, carries its own label, and is set in the
+   display face so it reads as an editorial statement, not a dismissable chip. */
+.provenance {
+  background: var(--note-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.5rem 1.6rem;
+  margin-top: 2rem;
+}
+.provenance .eyebrow { margin-bottom: .6rem; }
+/* Scoped to the body paragraph by class, not by `.provenance p` -- the latter
+   outranks `.eyebrow` on specificity and silently repainted the label. */
+.provenance .note-body {
+  margin: 0;
+  font-family: var(--display);
+  font-optical-sizing: auto;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.provenance .measured {
+  display: block;
+  margin-top: .85rem;
+  padding-top: .85rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: .84rem;
+  color: var(--ink-2);
+}
+.provenance .measured b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-  .legend { margin-top: 1.5rem; padding-top: 1.1rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--muted); }
-  .swatches { display: flex; align-items: center; gap: .35rem; margin-top: .5rem; }
-  .sw { width: 26px; height: 12px; border-radius: 2px; }
-  .err { color: #b3261e; font-size: .88rem; margin-top: .9rem; }
-  @media (prefers-color-scheme: dark) { .err { color: #f2b8b5; } }
+/* --- composer ----------------------------------------------------------- */
+textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+textarea::placeholder { color: var(--muted); }
+textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.controls { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: .9rem; }
+.btn {
+  background: var(--action);
+  color: var(--action-ink);
+  border: 0;
+  border-radius: 9px;
+  padding: .65rem 1.35rem;
+  font-family: var(--sans);
+  font-size: .95rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.kbd-hint { color: var(--muted); font-size: .82rem; }
+
+/* --- examples ----------------------------------------------------------- */
+.examples { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.example {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: .85rem .95rem;
+  cursor: pointer;
+  font-family: var(--sans);
+  color: var(--ink);
+  transition: border-color .15s ease, transform .15s ease;
+}
+.example:hover { border-color: var(--baseline); transform: translateY(-1px); }
+.example:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.example .tag { display: block; font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: .3rem; }
+.example .snippet { display: block; font-size: .9rem; line-height: 1.45; color: var(--ink-2); }
+
+/* --- result: the hero --------------------------------------------------- */
+.result { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; }
+.result-head { padding: clamp(1.6rem, 4vw, 2.25rem); border-bottom: 1px solid var(--border); }
+
+.verdict {
+  font-family: var(--display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-size: clamp(1.9rem, 5vw, 2.9rem);
+  line-height: 1.08;
+  letter-spacing: -.02em;
+  margin: .2rem 0 0;
+}
+
+/* Hero figure stays in the sans with proportional figures -- a display face or
+   equal-width digits both read as decoration at this size. */
+.confidence-row { display: flex; align-items: baseline; gap: .55rem; margin-top: 1.1rem; }
+.confidence-value { font-family: var(--sans); font-weight: 600; font-size: 2rem; line-height: 1; letter-spacing: -.01em; }
+.confidence-label { font-size: .85rem; color: var(--ink-2); }
+
+/* Meter: fill in the predicted class's pole colour, track a lighter step of
+   that same hue so the state reads across the whole bar. Square at the
+   baseline, 4px rounded at the data end. */
+.meter { height: 10px; border-radius: 4px; margin-top: .7rem; overflow: hidden; }
+.meter > span { display: block; height: 100%; border-radius: 0 4px 4px 0; transition: width .35s ease; }
+
+/* --- highlighted reading ------------------------------------------------ */
+.reading-block { padding: clamp(1.6rem, 4vw, 2.25rem); border-bottom: 1px solid var(--border); }
+.reading {
+  font-size: clamp(1.15rem, 2.6vw, 1.4rem);
+  line-height: 2.05;
+  word-wrap: break-word;
+}
+.reading mark {
+  background: transparent;
+  color: inherit;
+  padding: .16em .22em;
+  border-radius: 5px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* Secondary encoding so the sign never rests on hue alone. */
+.reading mark.strong-pos { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.reading mark.strong-neg { text-decoration: underline dotted; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+
+/* --- contribution chart ------------------------------------------------- */
+.chart-block { padding: clamp(1.6rem, 4vw, 2.25rem); }
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.chart-title { font-family: var(--sans); font-size: .95rem; font-weight: 600; margin: 0; }
+.chart-sub { font-size: .8rem; color: var(--muted); margin: .15rem 0 0; }
+
+.legend { display: flex; gap: 1rem; font-size: .78rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: .4rem; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+.bars { display: grid; row-gap: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 7.5rem) 1fr 4.25rem; align-items: center; gap: .75rem; }
+.bar-word { font-size: .88rem; text-align: right; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-plot { position: relative; height: 18px; }
+/* Zero axis: solid hairline, one step off the surface, recessive. */
+.bar-plot::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--baseline); }
+.bar-fill { position: absolute; top: 2px; height: 14px; }
+.bar-fill.pos { left: 50%; border-radius: 0 4px 4px 0; background: rgb(var(--pos-rgb)); }
+.bar-fill.neg { right: 50%; border-radius: 4px 0 0 4px; background: rgb(var(--neg-rgb)); }
+/* Values are ink, never the data colour; the bar beside them carries identity.
+   A column of numbers is exactly where tabular figures belong. */
+.bar-value { font-size: .82rem; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
+
+.method { margin-top: 1.5rem; padding-top: 1.15rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--muted); }
+
+.err { color: rgb(var(--pos-rgb)); font-size: .9rem; margin-top: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+@media (max-width: 30rem) {
+  .bar-row { grid-template-columns: minmax(0, 5rem) 1fr 3.5rem; }
+}
 </style>
 </head>
 <body>
 <main>
-  <h1>Crisis Text Classifier</h1>
-  <p class="sub">Classifies a message, and shows which words drove the decision.</p>
 
-  <div class="notice" id="notice">
-    <strong>Demonstration model</strong>
-    Loading model details…
-  </div>
+  <header class="masthead">
+    <h1>Crisis Text Classifier</h1>
+    <p class="lede">Reads a message, predicts whether it reports a real disaster, and shows the words behind the call.</p>
 
-  <textarea id="input" placeholder="Type or paste a message…" aria-label="Message text"></textarea>
-
-  <div class="row">
-    <button id="go">Analyze</button>
-    <span class="hint">or press ⌘/Ctrl + Enter</span>
-  </div>
-
-  <div class="examples" id="examples"></div>
-
-  <div id="error" class="err" hidden></div>
-  <section id="result" hidden></section>
-
-  <div class="legend">
-    <div>Colour shows each word's contribution to the prediction. Hover a word for its exact value.</div>
-    <div class="swatches">
-      <span>toward “not disaster-related”</span>
-      <span class="sw" id="sw-neg"></span>
-      <span class="sw" style="background:var(--border)"></span>
-      <span class="sw" id="sw-pos"></span>
-      <span>toward “disaster-related”</span>
+    <div class="provenance">
+      <p class="eyebrow">Model provenance</p>
+      <p class="note-body" id="provenance-text">Loading model details…</p>
+      <span class="measured" id="provenance-metrics" hidden></span>
     </div>
-  </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Try it</p>
+    <div class="examples" id="examples"></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Or write your own</p>
+    <textarea id="input" placeholder="Type or paste a message…" aria-label="Message text"></textarea>
+    <div class="controls">
+      <button class="btn" id="go">Analyze</button>
+      <span class="kbd-hint">or press ⌘/Ctrl + Enter</span>
+    </div>
+    <div id="error" class="err" hidden role="alert"></div>
+  </section>
+
+  <section id="result-section" hidden aria-live="polite">
+    <div class="result">
+
+      <div class="result-head">
+        <p class="eyebrow">Prediction</p>
+        <h2 class="verdict" id="verdict"></h2>
+        <div class="confidence-row">
+          <span class="confidence-value" id="confidence-value"></span>
+          <span class="confidence-label">confidence</span>
+        </div>
+        <div class="meter" id="meter"><span id="meter-fill"></span></div>
+      </div>
+
+      <div class="reading-block">
+        <p class="eyebrow">Word contributions, in context</p>
+        <div class="reading" id="reading"></div>
+      </div>
+
+      <div class="chart-block">
+        <div class="chart-head">
+          <div>
+            <h3 class="chart-title">What drove the prediction</h3>
+            <p class="chart-sub" id="chart-sub"></p>
+          </div>
+          <div class="legend">
+            <span><i style="background:rgb(var(--neg-rgb))"></i> not disaster-related</span>
+            <span><i style="background:rgb(var(--pos-rgb))"></i> disaster-related</span>
+          </div>
+        </div>
+        <div class="bars" id="bars"></div>
+        <p class="method" id="method"></p>
+      </div>
+
+    </div>
+  </section>
+
 </main>
 
 <script>
 const EXAMPLES = [
-  "Roof gone. No water. Very cold. Send help.",
-  "Forest fire near La Ronge Sask. Canada",
-  "This new album is an absolute disaster lol",
-  "Just watched the sunset, what a beautiful evening"
+  { tag: "Clear emergency",       text: "Roof gone. No water. Very cold. Send help." },
+  { tag: "Metaphor, not an event", text: "This new album is an absolute disaster lol" },
+  { tag: "Named event",           text: "Forest fire near La Ronge Sask. Canada" }
 ];
 
+const TOP_N = 7;
 const $ = (id) => document.getElementById(id);
 
-// Contribution -> rgba background. Alpha scales with magnitude relative to the
-// strongest word in this sentence, so faint signals stay readable.
-function shade(value, peak) {
+/* Tint for inline words: the pole hue at an alpha scaled by magnitude relative
+   to the strongest word in this sentence, so faint signals stay readable. */
+function tint(value, peak) {
   if (!peak || Math.abs(value) < 1e-9) return "transparent";
   const strength = Math.min(Math.abs(value) / peak, 1);
-  const alpha = 0.10 + 0.55 * strength;
-  const rgb = value > 0
-    ? getComputedStyle(document.documentElement).getPropertyValue("--pos")
-    : getComputedStyle(document.documentElement).getPropertyValue("--neg");
-  return `rgba(${rgb.trim()}, ${alpha.toFixed(3)})`;
+  const alpha = (0.12 + 0.5 * strength).toFixed(3);
+  const channels = getComputedStyle(document.documentElement)
+    .getPropertyValue(value > 0 ? "--pos-rgb" : "--neg-rgb").trim();
+  return `rgba(${channels}, ${alpha})`;
+}
+
+function renderReading(segments, peak) {
+  const host = $("reading");
+  host.replaceChildren();
+  for (const seg of segments) {
+    if (!seg.is_token) { host.appendChild(document.createTextNode(seg.text)); continue; }
+    const el = document.createElement("mark");
+    el.textContent = seg.text;
+    el.style.background = tint(seg.contribution, peak);
+    if (peak && Math.abs(seg.contribution) / peak > 0.45) {
+      el.classList.add(seg.contribution > 0 ? "strong-pos" : "strong-neg");
+    }
+    host.appendChild(el);
+  }
+}
+
+function renderBars(tokens, peak) {
+  const host = $("bars");
+  host.replaceChildren();
+
+  const top = tokens
+    .filter(t => Math.abs(t.contribution) > 1e-9)
+    .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+    .slice(0, TOP_N);
+
+  if (!top.length) {
+    const empty = document.createElement("p");
+    empty.className = "chart-sub";
+    empty.textContent = "No word in this message carries weight in the model's vocabulary.";
+    host.appendChild(empty);
+    $("chart-sub").textContent = "";
+    return;
+  }
+
+  $("chart-sub").textContent =
+    `Top ${top.length} of ${tokens.length} words, by size of contribution`;
+
+  for (const t of top) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const word = document.createElement("div");
+    word.className = "bar-word";
+    word.textContent = t.text;
+    word.title = t.text;
+
+    const plot = document.createElement("div");
+    plot.className = "bar-plot";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill " + (t.contribution > 0 ? "pos" : "neg");
+    // Half the plot is each arm, so a full-length bar is the sentence's peak.
+    fill.style.width = `${(Math.abs(t.contribution) / peak) * 50}%`;
+    plot.appendChild(fill);
+
+    const value = document.createElement("div");
+    value.className = "bar-value";
+    value.textContent = (t.contribution >= 0 ? "+" : "−") + Math.abs(t.contribution).toFixed(3);
+
+    row.append(word, plot, value);
+    host.appendChild(row);
+  }
 }
 
 function render(data) {
-  const peak = Math.max(...data.segments.filter(s => s.is_token).map(s => Math.abs(s.contribution)), 0);
+  const tokens = data.segments.filter(s => s.is_token);
+  const peak = Math.max(...tokens.map(s => Math.abs(s.contribution)), 0);
+  const positive = data.predicted_class === "disaster-related";
+  const pole = positive ? "var(--pos-rgb)" : "var(--neg-rgb)";
 
-  const reading = document.createElement("div");
-  reading.className = "reading";
-  for (const seg of data.segments) {
-    if (!seg.is_token) {
-      reading.appendChild(document.createTextNode(seg.text));
-      continue;
-    }
-    const el = document.createElement("mark");
-    el.textContent = seg.text;
-    el.style.background = shade(seg.contribution, peak);
-    const dir = seg.contribution > 0 ? "toward disaster-related" : "toward not disaster-related";
-    el.title = `${seg.contribution >= 0 ? "+" : ""}${seg.contribution.toFixed(4)} — ${dir}`;
-    // Not colour alone: the strongest contributors are also underlined, so the
-    // signal survives greyscale and most colour-vision differences.
-    if (peak && Math.abs(seg.contribution) / peak > 0.45) {
-      el.style.textDecoration = seg.contribution > 0 ? "underline" : "underline dotted";
-      el.style.textUnderlineOffset = "3px";
-    }
-    reading.appendChild(el);
-  }
+  $("verdict").textContent = data.predicted_class;
+  $("confidence-value").textContent = (data.confidence * 100).toFixed(1) + "%";
 
-  const pct = (data.confidence * 100).toFixed(1);
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `
-    <div class="verdict">
-      <span class="label"></span>
-      <span class="conf">${pct}% confidence</span>
-    </div>
-    <div class="bar"><span style="width:${pct}%"></span></div>`;
-  card.querySelector(".label").textContent = data.predicted_class;
-  card.appendChild(reading);
+  const fill = $("meter-fill");
+  fill.style.width = (data.confidence * 100).toFixed(1) + "%";
+  fill.style.background = `rgb(${pole})`;
+  $("meter").style.background = `rgba(${getComputedStyle(document.documentElement)
+    .getPropertyValue(positive ? "--pos-rgb" : "--neg-rgb").trim()}, 0.16)`;
 
-  const out = $("result");
-  out.replaceChildren(card);
-  out.hidden = false;
+  renderReading(data.segments, peak);
+  renderBars(tokens, peak);
+
+  $("method").textContent =
+    `Contributions are exact SHAP values for this linear model: they sum with the ` +
+    `base value (${data.base_value.toFixed(3)}) to the model's logit (${data.logit.toFixed(3)}).`;
+
+  $("result-section").hidden = false;
 }
 
 async function analyze() {
@@ -249,7 +496,7 @@ async function analyze() {
     }
     render(await res.json());
   } catch (err) {
-    $("result").hidden = true;
+    $("result-section").hidden = true;
     $("error").textContent = err.message;
     $("error").hidden = false;
   } finally {
@@ -262,28 +509,38 @@ $("input").addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") analyze();
 });
 
-for (const example of EXAMPLES) {
+for (const ex of EXAMPLES) {
   const b = document.createElement("button");
-  b.textContent = example.length > 38 ? example.slice(0, 36) + "…" : example;
-  b.title = example;
-  b.addEventListener("click", () => { $("input").value = example; analyze(); });
+  b.className = "example";
+  b.type = "button";
+  const tag = document.createElement("span");
+  tag.className = "tag";
+  tag.textContent = ex.tag;
+  const snippet = document.createElement("span");
+  snippet.className = "snippet";
+  snippet.textContent = ex.text;
+  b.append(tag, snippet);
+  b.addEventListener("click", () => { $("input").value = ex.text; analyze(); });
   $("examples").appendChild(b);
 }
 
-$("sw-pos").style.background = shade(1, 1);
-$("sw-neg").style.background = shade(-1, 1);
-
-// Pull the disclaimer from the server rather than hardcoding it here, so the
-// page cannot drift out of sync with what the model actually is.
+/* Provenance text comes from the server so the page cannot drift out of sync
+   with what the model actually is. */
 fetch("/metrics").then(r => r.json()).then(m => {
-  const extra = m.accuracy
-    ? ` Held-out test accuracy ${(m.accuracy * 100).toFixed(1)}%, macro F1 ${m.f1_macro}.`
-    : "";
-  $("notice").innerHTML = "<strong>Demonstration model</strong>";
-  $("notice").append(m.notice + extra);
+  $("provenance-text").textContent = m.notice;
+  if (m.accuracy != null) {
+    const el = $("provenance-metrics");
+    el.innerHTML = "";
+    el.append("Measured on a held-out split: accuracy ");
+    const a = document.createElement("b"); a.textContent = (m.accuracy * 100).toFixed(1) + "%";
+    const f = document.createElement("b"); f.textContent = m.f1_macro;
+    const r2 = document.createElement("b"); r2.textContent = m.roc_auc;
+    el.append(a, ", macro F1 ", f, ", ROC-AUC ", r2, ".");
+    el.hidden = false;
+  }
 }).catch(() => {
-  $("notice").innerHTML = "<strong>Demonstration model</strong>";
-  $("notice").append("Stand-in model trained on public data — not the published research model.");
+  $("provenance-text").textContent =
+    "Stand-in model trained on public data — not the published research model.";
 });
 </script>
 </body>
