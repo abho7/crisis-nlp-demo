@@ -1,0 +1,12 @@
+# Everything in requirements.txt, plus what is needed to retrain and to test.
+-r requirements.txt
+
+# training
+pandas==3.0.5
+pyarrow==25.0.1
+requests==2.34.2
+
+# tests -- shap is used only to cross-check our closed-form attributions
+shap==0.52.0
+pytest==9.1.1
+httpx==0.28.1

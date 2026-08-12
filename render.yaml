@@ -1,0 +1,15 @@
+# Render Blueprint. Keeps the service definition in the repo so the deploy is
+# reproducible rather than clicked together in a dashboard.
+#
+# The Dockerfile's CMD reads ${PORT}, which Render injects at runtime, so no
+# port configuration is needed here.
+services:
+  - type: web
+    name: crisis-nlp-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    # /health returns 200 once the model is loaded, so Render will not route
+    # traffic to an instance whose artifact failed to load.
+    healthCheckPath: /health
+    autoDeploy: true

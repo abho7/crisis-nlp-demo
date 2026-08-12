@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crisis Text Classifier — Demo</title>
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --surface: #ffffff;
+    --border: #e3e2df;
+    --text: #1a1a18;
+    --muted: #6b6a66;
+    --accent: #2f6f4e;
+    --warn-bg: #fdf6e6;
+    --warn-border: #e8d9a8;
+    --warn-text: #6b5518;
+    /* Divergent pair. Orange/blue rather than red/green so the two directions
+       stay distinguishable under the common colour-vision deficiencies. Each
+       theme needs its own values: these are laid over the surface as rgba, so
+       light themes want dark inks and dark themes want light ones. */
+    --pos: 176, 63, 27;     /* toward disaster-related  */
+    --neg: 30, 90, 150;     /* toward not disaster-related */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a;
+      --surface: #1e1e23;
+      --border: #33333a;
+      --text: #ececea;
+      --muted: #9b9a96;
+      --accent: #6fbf92;
+      --warn-bg: #2b2513;
+      --warn-border: #574a22;
+      --warn-text: #e2cf94;
+      --pos: 240, 150, 100;
+      --neg: 120, 175, 235;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* At fractional devicePixelRatios (1.5 here) Chrome rounds the scrollbar
+     gutter up and reports documentElement.scrollWidth a scrollbar wider than
+     clientWidth, producing a stray horizontal scrollbar. No content actually
+     exceeds the viewport, so clamping the axis clips nothing. */
+  html { overflow-x: hidden; }
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.45rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: .9rem; margin: 0 0 1.5rem; }
+
+  .notice {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    border-radius: 10px;
+    padding: .8rem 1rem;
+    font-size: .85rem;
+    margin-bottom: 1.75rem;
+  }
+  .notice strong { display: block; margin-bottom: .2rem; }
+
+  textarea {
+    width: 100%;
+    min-height: 7.5rem;
+    padding: .9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    resize: vertical;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .row { display: flex; gap: .75rem; align-items: center; margin-top: .75rem; flex-wrap: wrap; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: .55rem 1.1rem;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .hint { color: var(--muted); font-size: .8rem; }
+
+  .examples { margin-top: 1rem; display: flex; gap: .4rem; flex-wrap: wrap; }
+  .examples button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    font-size: .78rem;
+    padding: .3rem .65rem;
+    font-weight: 400;
+  }
+
+  .card {
+    margin-top: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.4rem;
+  }
+  .verdict { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+  .label { font-size: 1.2rem; font-weight: 600; }
+  .conf { color: var(--muted); font-size: .9rem; }
+
+  .bar { height: 6px; border-radius: 3px; background: var(--border); margin: .8rem 0 1.4rem; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+
+  .reading { font-size: 1.12rem; line-height: 2.1; word-wrap: break-word; }
+  .reading mark {
+    background: transparent;
+    color: inherit;
+    padding: .12em .18em;
+    border-radius: 4px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .legend { margin-top: 1.5rem; padding-top: 1.1rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--muted); }
+  .swatches { display: flex; align-items: center; gap: .35rem; margin-top: .5rem; }
+  .sw { width: 26px; height: 12px; border-radius: 2px; }
+  .err { color: #b3261e; font-size: .88rem; margin-top: .9rem; }
+  @media (prefers-color-scheme: dark) { .err { color: #f2b8b5; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Crisis Text Classifier</h1>
+  <p class="sub">Classifies a message, and shows which words drove the decision.</p>
+
+  <div class="notice" id="notice">
+    <strong>Demonstration model</strong>
+    Loading model details…
+  </div>
+
+  <textarea id="input" placeholder="Type or paste a message…" aria-label="Message text"></textarea>
+
+  <div class="row">
+    <button id="go">Analyze</button>
+    <span class="hint">or press ⌘/Ctrl + Enter</span>
+  </div>
+
+  <div class="examples" id="examples"></div>
+
+  <div id="error" class="err" hidden></div>
+  <section id="result" hidden></section>
+
+  <div class="legend">
+    <div>Colour shows each word's contribution to the prediction. Hover a word for its exact value.</div>
+    <div class="swatches">
+      <span>toward “not disaster-related”</span>
+      <span class="sw" id="sw-neg"></span>
+      <span class="sw" style="background:var(--border)"></span>
+      <span class="sw" id="sw-pos"></span>
+      <span>toward “disaster-related”</span>
+    </div>
+  </div>
+</main>
+
+<script>
+const EXAMPLES = [
+  "Roof gone. No water. Very cold. Send help.",
+  "Forest fire near La Ronge Sask. Canada",
+  "This new album is an absolute disaster lol",
+  "Just watched the sunset, what a beautiful evening"
+];
+
+const $ = (id) => document.getElementById(id);
+
+// Contribution -> rgba background. Alpha scales with magnitude relative to the
+// strongest word in this sentence, so faint signals stay readable.
+function shade(value, peak) {
+  if (!peak || Math.abs(value) < 1e-9) return "transparent";
+  const strength = Math.min(Math.abs(value) / peak, 1);
+  const alpha = 0.10 + 0.55 * strength;
+  const rgb = value > 0
+    ? getComputedStyle(document.documentElement).getPropertyValue("--pos")
+    : getComputedStyle(document.documentElement).getPropertyValue("--neg");
+  return `rgba(${rgb.trim()}, ${alpha.toFixed(3)})`;
+}
+
+function render(data) {
+  const peak = Math.max(...data.segments.filter(s => s.is_token).map(s => Math.abs(s.contribution)), 0);
+
+  const reading = document.createElement("div");
+  reading.className = "reading";
+  for (const seg of data.segments) {
+    if (!seg.is_token) {
+      reading.appendChild(document.createTextNode(seg.text));
+      continue;
+    }
+    const el = document.createElement("mark");
+    el.textContent = seg.text;
+    el.style.background = shade(seg.contribution, peak);
+    const dir = seg.contribution > 0 ? "toward disaster-related" : "toward not disaster-related";
+    el.title = `${seg.contribution >= 0 ? "+" : ""}${seg.contribution.toFixed(4)} — ${dir}`;
+    // Not colour alone: the strongest contributors are also underlined, so the
+    // signal survives greyscale and most colour-vision differences.
+    if (peak && Math.abs(seg.contribution) / peak > 0.45) {
+      el.style.textDecoration = seg.contribution > 0 ? "underline" : "underline dotted";
+      el.style.textUnderlineOffset = "3px";
+    }
+    reading.appendChild(el);
+  }
+
+  const pct = (data.confidence * 100).toFixed(1);
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="verdict">
+      <span class="label"></span>
+      <span class="conf">${pct}% confidence</span>
+    </div>
+    <div class="bar"><span style="width:${pct}%"></span></div>`;
+  card.querySelector(".label").textContent = data.predicted_class;
+  card.appendChild(reading);
+
+  const out = $("result");
+  out.replaceChildren(card);
+  out.hidden = false;
+}
+
+async function analyze() {
+  const text = $("input").value.trim();
+  $("error").hidden = true;
+  if (!text) return;
+
+  $("go").disabled = true;
+  try {
+    const res = await fetch("/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `Request failed (${res.status})`);
+    }
+    render(await res.json());
+  } catch (err) {
+    $("result").hidden = true;
+    $("error").textContent = err.message;
+    $("error").hidden = false;
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("go").addEventListener("click", analyze);
+$("input").addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") analyze();
+});
+
+for (const example of EXAMPLES) {
+  const b = document.createElement("button");
+  b.textContent = example.length > 38 ? example.slice(0, 36) + "…" : example;
+  b.title = example;
+  b.addEventListener("click", () => { $("input").value = example; analyze(); });
+  $("examples").appendChild(b);
+}
+
+$("sw-pos").style.background = shade(1, 1);
+$("sw-neg").style.background = shade(-1, 1);
+
+// Pull the disclaimer from the server rather than hardcoding it here, so the
+// page cannot drift out of sync with what the model actually is.
+fetch("/metrics").then(r => r.json()).then(m => {
+  const extra = m.accuracy
+    ? ` Held-out test accuracy ${(m.accuracy * 100).toFixed(1)}%, macro F1 ${m.f1_macro}.`
+    : "";
+  $("notice").innerHTML = "<strong>Demonstration model</strong>";
+  $("notice").append(m.notice + extra);
+}).catch(() => {
+  $("notice").innerHTML = "<strong>Demonstration model</strong>";
+  $("notice").append("Stand-in model trained on public data — not the published research model.");
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Runtime dependencies for serving the demo.
+# Deliberately minimal: no torch, no transformers, no shap. The stand-in is a
+# linear model whose SHAP values are computed in closed form (see
+# app/model_adapter.py), so the whole image stays small enough for any free tier.
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+scikit-learn==1.9.0
+numpy==2.5.2
+joblib==1.5.3

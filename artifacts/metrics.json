@@ -1,0 +1,50 @@
+{
+  "model": "TF-IDF (1-2gram) + LogisticRegression",
+  "dataset": "venetis/disaster_tweets (public Kaggle mirror)",
+  "task": "binary: disaster-related vs not disaster-related",
+  "n_train": 6090,
+  "n_test": 1523,
+  "accuracy": 0.8024,
+  "f1_macro": 0.7986,
+  "f1_positive": 0.7711,
+  "roc_auc": 0.8705,
+  "confusion_matrix": [
+    [
+      715,
+      154
+    ],
+    [
+      147,
+      507
+    ]
+  ],
+  "per_class": {
+    "not disaster-related": {
+      "precision": 0.8294663573085846,
+      "recall": 0.8227848101265823,
+      "f1-score": 0.8261120739456961,
+      "support": 869.0
+    },
+    "disaster-related": {
+      "precision": 0.7670196671709532,
+      "recall": 0.7752293577981652,
+      "f1-score": 0.7711026615969582,
+      "support": 654.0
+    },
+    "accuracy": 0.8023637557452397,
+    "macro avg": {
+      "precision": 0.7982430122397689,
+      "recall": 0.7990070839623737,
+      "f1-score": 0.7986073677713271,
+      "support": 1523.0
+    },
+    "weighted avg": {
+      "precision": 0.8026507727058197,
+      "recall": 0.8023637557452397,
+      "f1-score": 0.8024901726482079,
+      "support": 1523.0
+    }
+  },
+  "is_standin": true,
+  "not_the_published_model": "Trained on public data as a substitute. Does not reproduce, and is not comparable to, the NHSJS 2025 results."
+}

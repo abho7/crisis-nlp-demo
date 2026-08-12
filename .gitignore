@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# Cached copy of the public training data; re-downloaded by
+# training/train_standin.py on demand.
+data/
+
+# The original model repo is a separate project, cloned here read-only.
+# It is NOT part of this repo: github.com/abho7/NLP-Disaster-Response
+nlp-model/
