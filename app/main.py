@@ -11,6 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -46,6 +47,16 @@ app = FastAPI(
     description=STANDIN_NOTICE,
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# Public read-only demo, no auth/cookies -- same open posture as the
+# raft-chaos-testing report's results.json. Lets the portfolio site call
+# /predict directly instead of only embedding this app in an iframe.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 
