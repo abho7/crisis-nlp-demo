@@ -1,5 +1,8 @@
 # Crisis Text Classifier — Explainable Demo
 
+[![tests](https://github.com/abho7/crisis-nlp-demo/actions/workflows/tests.yml/badge.svg)](https://github.com/abho7/crisis-nlp-demo/actions/workflows/tests.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A small web demo that classifies a message and shows **which words drove the
 decision**, colour-coded by how much each one contributed.
 
